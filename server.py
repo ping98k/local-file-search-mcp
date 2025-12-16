@@ -1,4 +1,6 @@
 import re
+import sys
+import os
 from pathlib import Path
 from rapidfuzz import fuzz
 from mcp.server import Server
@@ -7,8 +9,7 @@ import mcp.server.stdio
 import asyncio
 
 
-
-SEARCH_PATH = 'C:/Users/pingk/OneDrive/Desktop/knowledge'
+SEARCH_PATH = None
 
 server = Server("search-server")
 
@@ -17,7 +18,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="full_text_search",
-            description="Search for text in files with fuzzy matching for typos",
+            description="Search for text in files with fuzzy matching",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -89,8 +90,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     chunk_end = min(len(content), pos + len(word) + 250)
                     chunk = content[chunk_start:chunk_end]
                     
+                    relative_path = '/' + str(file_path.relative_to(search_path)).replace('\\', '/')
+                    
                     results.append({
-                        'file': str(file_path),
+                        'file': relative_path,
                         'position': pos,
                         'match': word,
                         'similarity': similarity,
@@ -109,6 +112,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=output)]
 
 def main():
+    global SEARCH_PATH
+    
+    # Get search path from environment variable or command line argument
+    if len(sys.argv) > 1:
+        SEARCH_PATH = sys.argv[1]
+    else:
+        SEARCH_PATH = os.getenv('SEARCH_PATH')
+    
+    if not SEARCH_PATH:
+        print("Error: No search path provided. Set SEARCH_PATH environment variable or pass as argument.", file=sys.stderr)
+        sys.exit(1)
+    
     async def run():
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
             await server.run(

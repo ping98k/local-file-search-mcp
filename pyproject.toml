@@ -1,5 +1,5 @@
 [project]
-name = "local-file-search-mcp"
+name = "local-file-mcp"
 version = "0.1.0"
 dependencies = [
     "mcp",
@@ -7,4 +7,4 @@ dependencies = [
 ]
 
 [project.scripts]
-local-file-search-mcp = "main:main"
+local-file-mcp = "server:main"
