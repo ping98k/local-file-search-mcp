@@ -26,12 +26,12 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Search query"
                     },
-                    "file": {
+                    "filePattern": {
                         "type": "string",
                         "description": "File name pattern to search in (e.g., '*.py', 'config.txt'). Default searches all files.",
                         "default": "*"
                     },
-                    "offset": {
+                    "skip": {
                         "type": "integer",
                         "description": "Skip first N matches",
                         "default": 0
@@ -52,16 +52,16 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "file": {
+                    "filePath": {
                         "type": "string",
                         "description": "File path relative to search path"
                     },
-                    "offset": {
+                    "charOffset": {
                         "type": "integer",
                         "description": "Character offset in the file"
                     }
                 },
-                "required": ["file", "offset"]
+                "required": ["filePath", "charOffset"]
             }
         ),
         Tool(
@@ -151,8 +151,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             )]
     
     if name == "read":
-        file_path = arguments["file"]
-        offset = arguments["offset"]
+        file_path = arguments["filePath"]
+        char_offset = arguments["charOffset"]
         
         search_path = Path(SEARCH_PATH)
         # Remove leading slash if present
@@ -175,13 +175,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 text=f"Error reading file: {e}"
             )]
         
-        start = max(0, offset - 100)
-        end = min(len(content), offset + 500)
+        start = max(0, char_offset - 100)
+        end = min(len(content), char_offset + 500)
         chunk = content[start:end]
         max_range = len(content)
         
         output = f"File: {file_path}\n"
-        output += f"Range: {start}-{end} (offset {offset}) [Max: 0-{max_range}]\n"
+        output += f"Range: {start}-{end} (offset {char_offset}) [Max: 0-{max_range}]\n"
         output += f"Context:\n{chunk}\n\n\n"
         
         return [TextContent(type="text", text=output)]
@@ -190,8 +190,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         raise ValueError(f"Unknown tool: {name}")
     
     query = arguments["query"]
-    file_pattern = arguments.get("file", "*")
-    offset = arguments.get("offset", 0)
+    file_pattern = arguments.get("filePattern", "*")
+    skip = arguments.get("skip", 0)
     threshold = arguments.get("threshold", 80)
     
     search_path = Path(SEARCH_PATH)
@@ -231,7 +231,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if similarity >= threshold:
                 total_found += 1
                 
-                if matches_found >= offset and len(results) < 5:
+                if matches_found >= skip and len(results) < 5:
                     pos = content.find(word, sum(len(w) + 1 for w in words[:i]))
                     chunk_start = max(0, pos - 250)
                     chunk_end = min(len(content), pos + len(word) + 250)
