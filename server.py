@@ -31,11 +31,11 @@ async def list_tools() -> list[Tool]:
                         "description": "Skip first N matches",
                         "default": 0
                     },
-                    "threshold": {
-                        "type": "integer",
-                        "description": "Similarity threshold (0-100)",
-                        "default": 80
-                    }
+                    # "threshold": {
+                    #     "type": "integer",
+                    #     "description": "Similarity threshold (0-100)",
+                    #     "default": 80
+                    # }
                 },
                 "required": ["query"]
             }
