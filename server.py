@@ -26,6 +26,11 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Search query"
                     },
+                    "file": {
+                        "type": "string",
+                        "description": "File name pattern to search in (e.g., '*.py', 'config.txt'). Default searches all files.",
+                        "default": "*"
+                    },
                     "offset": {
                         "type": "integer",
                         "description": "Skip first N matches",
@@ -36,6 +41,7 @@ async def list_tools() -> list[Tool]:
                     #     "description": "Similarity threshold (0-100)",
                     #     "default": 80
                     # }
+
                 },
                 "required": ["query"]
             }
@@ -184,6 +190,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         raise ValueError(f"Unknown tool: {name}")
     
     query = arguments["query"]
+    file_pattern = arguments.get("file", "*")
     offset = arguments.get("offset", 0)
     threshold = arguments.get("threshold", 80)
     
@@ -202,6 +209,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     
     for file_path in search_path.rglob('*'):
         if not file_path.is_file():
+            continue
+        
+        # Filter by file pattern
+        if file_pattern != "*" and not file_path.match(file_pattern):
             continue
         
         try:
