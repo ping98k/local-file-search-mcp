@@ -1,0 +1,123 @@
+import re
+from pathlib import Path
+from rapidfuzz import fuzz
+from mcp.server import Server
+from mcp.types import Tool, TextContent
+import mcp.server.stdio
+import asyncio
+
+
+
+SEARCH_PATH = 'C:/Users/pingk/OneDrive/Desktop/knowledge'
+
+server = Server("search-server")
+
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="full_text_search",
+            description="Search for text in files with fuzzy matching for typos",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Skip first N matches",
+                        "default": 0
+                    },
+                    "threshold": {
+                        "type": "integer",
+                        "description": "Similarity threshold (0-100)",
+                        "default": 80
+                    }
+                },
+                "required": ["query"]
+            }
+        )
+    ]
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    if name != "full_text_search":
+        raise ValueError(f"Unknown tool: {name}")
+    
+    query = arguments["query"]
+    offset = arguments.get("offset", 0)
+    threshold = arguments.get("threshold", 80)
+    
+    search_path = Path(SEARCH_PATH)
+    results = []
+    total_found = 0
+    
+    if not search_path.exists():
+        return [TextContent(
+            type="text",
+            text=f"Path not found: {SEARCH_PATH}"
+        )]
+    
+    query_len = len(query)
+    matches_found = 0
+    
+    for file_path in search_path.rglob('*'):
+        if not file_path.is_file():
+            continue
+        
+        try:
+            content = file_path.read_text(encoding='utf-8', errors='ignore')
+        except:
+            continue
+        
+        words = re.findall(r'\S+', content)
+        
+        for i, word in enumerate(words):
+            if abs(len(word) - query_len) > query_len * 0.3:
+                continue
+                
+            similarity = fuzz.ratio(query.lower(), word.lower())
+            
+            if similarity >= threshold:
+                total_found += 1
+                
+                if matches_found >= offset and len(results) < 5:
+                    pos = content.find(word, sum(len(w) + 1 for w in words[:i]))
+                    chunk_start = max(0, pos - 250)
+                    chunk_end = min(len(content), pos + len(word) + 250)
+                    chunk = content[chunk_start:chunk_end]
+                    
+                    results.append({
+                        'file': str(file_path),
+                        'position': pos,
+                        'match': word,
+                        'similarity': similarity,
+                        'chunk': chunk
+                    })
+                
+                matches_found += 1
+    
+    output = f"Total found: {total_found}\n\n"
+    for r in results:
+        output += f"File: {r['file']}\n"
+        output += f"Match: {r['match']} (similarity: {r['similarity']}%)\n"
+        output += f"Position: {r['position']}\n"
+        output += f"Context: {r['chunk']}\n\n"
+    
+    return [TextContent(type="text", text=output)]
+
+def main():
+    async def run():
+        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options()
+            )
+    
+    asyncio.run(run())
+
+if __name__ == "__main__":
+    main()

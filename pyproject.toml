@@ -1,0 +1,10 @@
+[project]
+name = "local-file-search-mcp"
+version = "0.1.0"
+dependencies = [
+    "mcp",
+    "rapidfuzz"
+]
+
+[project.scripts]
+local-file-search-mcp = "main:main"
