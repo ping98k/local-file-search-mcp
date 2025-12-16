@@ -17,7 +17,7 @@ server = Server("search-server")
 async def list_tools() -> list[Tool]:
     return [
         Tool(
-            name="full_text_search",
+            name="search",
             description="Search for text in files with fuzzy matching",
             inputSchema={
                 "type": "object",
@@ -44,7 +44,7 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name != "full_text_search":
+    if name != "search":
         raise ValueError(f"Unknown tool: {name}")
     
     query = arguments["query"]
