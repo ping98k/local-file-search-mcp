@@ -57,11 +57,93 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["file", "offset"]
             }
+        ),
+        Tool(
+            name="list",
+            description="List files and folders in a directory",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory path relative to search path (empty or '/' for root)",
+                        "default": ""
+                    }
+                },
+                "required": []
+            }
         )
     ]
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    if name == "list":
+        dir_path = arguments.get("path", "")
+        
+        search_path = Path(SEARCH_PATH)
+        # Remove leading slash if present
+        if dir_path.startswith('/'):
+            dir_path = dir_path[1:]
+        
+        if dir_path:
+            full_path = search_path / dir_path
+        else:
+            full_path = search_path
+        
+        if not full_path.exists():
+            return [TextContent(
+                type="text",
+                text=f"Directory not found: {dir_path or '/'}"
+            )]
+        
+        if not full_path.is_dir():
+            return [TextContent(
+                type="text",
+                text=f"Not a directory: {dir_path or '/'}"
+            )]
+        
+        try:
+            items = sorted(full_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            
+            folders = []
+            files = []
+            
+            for item in items:
+                relative = item.relative_to(search_path)
+                rel_path = '/' + str(relative).replace('\\', '/')
+                
+                if item.is_dir():
+                    folders.append(rel_path + '/')
+                else:
+                    size = item.stat().st_size
+                    files.append(f"{rel_path} ({size} bytes)")
+            
+            output = f"Directory: {dir_path or '/'}\n\n"
+            
+            if folders:
+                output += "Folders:\n"
+                for folder in folders:
+                    output += f"  {folder}\n"
+                output += "\n"
+            
+            if files:
+                output += "Files:\n"
+                for file in files:
+                    output += f"  {file}\n"
+            
+            if not folders and not files:
+                output += "(empty directory)\n"
+            
+            output += f"\nTotal: {len(folders)} folders, {len(files)} files"
+            
+            return [TextContent(type="text", text=output)]
+            
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error listing directory: {e}"
+            )]
+    
     if name == "read":
         file_path = arguments["file"]
         offset = arguments["offset"]
