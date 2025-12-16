@@ -105,9 +105,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     output = f"Total found: {total_found}\n\n"
     for r in results:
         output += f"File: {r['file']}\n"
-        output += f"Match: {r['match']} (similarity: {r['similarity']}%)\n"
         output += f"Position: {r['position']}\n"
-        output += f"Context: {r['chunk']}\n\n"
+        output += f"Context:\n{r['chunk']}\n\n\n"
+        output += "-"*20+"\n\n\n"
     
     return [TextContent(type="text", text=output)]
 
