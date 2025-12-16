@@ -39,11 +39,65 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["query"]
             }
+        ),
+        Tool(
+            name="read",
+            description="Read text from a file at a specific offset",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "description": "File path relative to search path"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Character offset in the file"
+                    }
+                },
+                "required": ["file", "offset"]
+            }
         )
     ]
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    if name == "read":
+        file_path = arguments["file"]
+        offset = arguments["offset"]
+        
+        search_path = Path(SEARCH_PATH)
+        # Remove leading slash if present
+        if file_path.startswith('/'):
+            file_path = file_path[1:]
+        
+        full_path = search_path / file_path
+        
+        if not full_path.exists():
+            return [TextContent(
+                type="text",
+                text=f"File not found: {file_path}"
+            )]
+        
+        try:
+            content = full_path.read_text(encoding='utf-8', errors='ignore')
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error reading file: {e}"
+            )]
+        
+        start = max(0, offset - 100)
+        end = min(len(content), offset + 500)
+        chunk = content[start:end]
+        max_range = len(content)
+        
+        output = f"File: {file_path}\n"
+        output += f"Range: {start}-{end} (offset {offset}) [Max: 0-{max_range}]\n"
+        output += f"Context:\n{chunk}\n\n\n"
+        
+        return [TextContent(type="text", text=output)]
+    
     if name != "search":
         raise ValueError(f"Unknown tool: {name}")
     
