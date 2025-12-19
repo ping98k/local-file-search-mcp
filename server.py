@@ -10,6 +10,7 @@ import asyncio
 
 
 SEARCH_PATH = None
+USE_FULL_PATH = False
 
 server = Server("search-server")
 
@@ -36,6 +37,10 @@ async def list_tools() -> list[Tool]:
                         "description": "Skip first N matches",
                         "default": 0
                     },
+                    "fullPath": {
+                        "type": "boolean",
+                        "description": "Use full system path in output instead of relative path (overrides server default)"
+                    },
                     # "threshold": {
                     #     "type": "integer",
                     #     "description": "Similarity threshold (0-100)",
@@ -54,11 +59,15 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "filePath": {
                         "type": "string",
-                        "description": "File path relative to search path"
+                        "description": "File path (relative to search path or absolute)"
                     },
                     "charOffset": {
                         "type": "integer",
                         "description": "Character offset in the file"
+                    },
+                    "fullPath": {
+                        "type": "boolean",
+                        "description": "Use full system path in output instead of relative path (overrides server default)"
                     }
                 },
                 "required": ["filePath", "charOffset"]
@@ -74,6 +83,10 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Directory path relative to search path (empty or '/' for root)",
                         "default": ""
+                    },
+                    "fullPath": {
+                        "type": "boolean",
+                        "description": "Use full system path in output instead of relative path (overrides server default)"
                     }
                 },
                 "required": []
@@ -85,6 +98,7 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "list":
         dir_path = arguments.get("path", "")
+        full_path_output = arguments.get("fullPath", USE_FULL_PATH)
         
         search_path = Path(SEARCH_PATH)
         # Remove leading slash if present
@@ -115,14 +129,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             files = []
             
             for item in items:
-                relative = item.relative_to(search_path)
-                rel_path = '/' + str(relative).replace('\\', '/')
+                if full_path_output:
+                    display_path = str(item).replace('\\', '/')
+                else:
+                    relative = item.relative_to(search_path)
+                    display_path = '/' + str(relative).replace('\\', '/')
                 
                 if item.is_dir():
-                    folders.append(rel_path + '/')
+                    folders.append(display_path + '/')
                 else:
                     size = item.stat().st_size
-                    files.append(f"{rel_path} ({size} bytes)")
+                    files.append(f"{display_path} ({size} bytes)")
             
             output = f"Directory: {dir_path or '/'}\n\n"
             
@@ -153,13 +170,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "read":
         file_path = arguments["filePath"]
         char_offset = arguments["charOffset"]
+        full_path_output = arguments.get("fullPath", USE_FULL_PATH)
         
         search_path = Path(SEARCH_PATH)
-        # Remove leading slash if present
-        if file_path.startswith('/'):
-            file_path = file_path[1:]
         
-        full_path = search_path / file_path
+        # Check if path is absolute
+        path_obj = Path(file_path)
+        if path_obj.is_absolute():
+            full_path = path_obj
+        else:
+            # Remove leading slash if present for relative paths
+            if file_path.startswith('/'):
+                file_path = file_path[1:]
+            full_path = search_path / file_path
         
         if not full_path.exists():
             return [TextContent(
@@ -180,7 +203,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         chunk = content[start:end]
         max_range = len(content)
         
-        output = f"File: {file_path}\n"
+        display_path = str(full_path).replace('\\', '/') if full_path_output else file_path
+        output = f"File: {display_path}\n"
         output += f"Range: {start}-{end} (offset {char_offset}) [Max: 0-{max_range}]\n"
         output += f"Context:\n{chunk}\n\n\n"
         
@@ -193,6 +217,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     file_pattern = arguments.get("filePattern", "*")
     skip = arguments.get("skip", 0)
     threshold = arguments.get("threshold", 80)
+    full_path_output = arguments.get("fullPath", USE_FULL_PATH)
     
     search_path = Path(SEARCH_PATH)
     results = []
@@ -237,10 +262,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     chunk_end = min(len(content), pos + len(word) + 250)
                     chunk = content[chunk_start:chunk_end]
                     
-                    relative_path = '/' + str(file_path.relative_to(search_path)).replace('\\', '/')
+                    if full_path_output:
+                        display_path = str(file_path).replace('\\', '/')
+                    else:
+                        display_path = '/' + str(file_path.relative_to(search_path)).replace('\\', '/')
                     
                     results.append({
-                        'file': relative_path,
+                        'file': display_path,
                         'position': pos,
                         'match': word,
                         'similarity': similarity,
@@ -259,16 +287,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=output)]
 
 def main():
-    global SEARCH_PATH
+    global SEARCH_PATH, USE_FULL_PATH
     
-    # Get search path from environment variable or command line argument
-    if len(sys.argv) > 1:
-        SEARCH_PATH = sys.argv[1]
+    # Parse command-line arguments
+    args = sys.argv[1:]
+    search_path_arg = None
+    
+    for arg in args:
+        if arg == '--full-path':
+            USE_FULL_PATH = True
+        elif not arg.startswith('--'):
+            search_path_arg = arg
+    
+    # Get search path from command line argument or environment variable
+    if search_path_arg:
+        SEARCH_PATH = search_path_arg
     else:
         SEARCH_PATH = os.getenv('SEARCH_PATH')
     
     if not SEARCH_PATH:
         print("Error: No search path provided. Set SEARCH_PATH environment variable or pass as argument.", file=sys.stderr)
+        print("Usage: python server.py <search_path> [--full-path]", file=sys.stderr)
         sys.exit(1)
     
     async def run():
