@@ -20,13 +20,37 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_file_contents",
-            description="Search for text in files using indexed full-text search. Fuzzy matching (~) is automatically enabled for single-word queries. You can manually write search queries with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR), and more. Returns: list of matches with file paths, relevance scores, character offsets, and content snippets.\n\nBEST PRACTICE: Start with globPattern='*' to search all files before filtering by specific file types.",
+            description="Search for text in files using indexed full-text search. Returns: list of matches with file paths, relevance scores, character offsets, and content snippets.\n\nEXAMPLE QUERIES:\n- 'error' - Simple search\n- 'function definition' - Multiple terms\n- 'import requests' - Exact phrase\n\nBEST PRACTICES:\n1. Use list_directory_contents first to understand what you're working with\n2. Start with globPattern='*' to search all files before filtering by specific file types",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query. Fuzzy matching is automatically enabled for single terms."
+                        "description": "Search query."
+                    },
+                    "globPattern": {
+                        "type": "string",
+                        "description": "Glob pattern relative to search path (e.g., '*', '*.txt', 'data/**', 'src/**/*.txt'). Leading slashes are ignored. Default searches all files.",
+                        "default": "*"
+                    },
+                    "skip": {
+                        "type": "integer",
+                        "description": "Skip first N matches",
+                        "default": 0
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="search_file_contents_with_lucene_syntax",
+            description="Search for text in files using Tantivy query syntax with manual control. Write queries manually with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR/NOT), and more. Use this when you want exact control over the query. Returns: list of matches with file paths, relevance scores, character offsets, and content snippets.\n\nEXAMPLE QUERIES:\n- 'error~2' - Fuzzy search (max 2 edits)\n- 'def*' - Wildcard search\n- '\"exact phrase\"' - Exact phrase\n- 'term1 AND term2' - Boolean AND\n- '(error OR warning) AND log' - Complex boolean",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Tantivy query syntax. Examples: 'term1 AND term2', 'term~2', 'prefix*', '\"exact phrase\"', '(term1 OR term2) AND term3'"
                     },
                     "globPattern": {
                         "type": "string",
@@ -193,7 +217,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         
         return [TextContent(type="text", text=output)]
     
-    if name != "search_file_contents":
+    if name not in ("search_file_contents", "search_file_contents_with_lucene_syntax"):
         raise ValueError(f"Unknown tool: {name}")
     
     query = arguments["query"]
@@ -201,6 +225,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     skip = arguments.get("skip", 0)
     limit = arguments.get("limit", 10)
     full_path_output = USE_FULL_PATH
+    bypass_fuzzy = (name == "search_file_contents_with_lucene_syntax")
     
     search_path = Path(SEARCH_PATH)
     
@@ -269,10 +294,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         SEARCH_INDEX.reload()
     
     try:
-        # Add automatic fuzzy matching and prefix matching if query is a simple term
-        if ' ' not in query and '"' not in query and '~' not in query and '*' not in query:
-            # Combine fuzzy search with prefix matching for better results
-            fuzzy_query = f"({query}~2 OR {query}*)"
+        # Add automatic fuzzy matching for all queries (unless bypassed)
+        if not bypass_fuzzy:
+            # Split query into terms and add fuzzy matching to each
+            terms = query.split()
+            if len(terms) == 1 and '"' not in query and '~' not in query and '*' not in query:
+                # Single term: combine fuzzy and prefix matching
+                fuzzy_query = f"({query}~2 OR {query}*)"
+            else:
+                # Multiple terms or special operators: just apply fuzzy to plain terms
+                fuzzy_terms = []
+                for term in terms:
+                    if '"' not in term and '~' not in term and '*' not in term and term.upper() not in ('AND', 'OR', 'NOT'):
+                        fuzzy_terms.append(f"({term}~2 OR {term}*)")
+                    else:
+                        fuzzy_terms.append(term)
+                fuzzy_query = ' '.join(fuzzy_terms)
             tantivy_query = SEARCH_INDEX.parse_query(fuzzy_query, ["content"])
         else:
             tantivy_query = SEARCH_INDEX.parse_query(query, ["content"])
