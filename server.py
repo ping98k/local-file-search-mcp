@@ -20,7 +20,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_file_contents",
-            description="Search for text in files using indexed full-text search. Fuzzy matching (~) is automatically enabled for single-word queries. You can manually write search queries with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR), and more. Returns: list of matches with file paths, relevance scores, character offsets, and content snippets.\n\nBEST PRACTICE: Start with filePattern='*' to search all files before filtering by specific file types.",
+            description="Search for text in files using indexed full-text search. Fuzzy matching (~) is automatically enabled for single-word queries. You can manually write search queries with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR), and more. Returns: list of matches with file paths, relevance scores, character offsets, and content snippets.\n\nBEST PRACTICE: Start with globPattern='*' to search all files before filtering by specific file types.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -28,9 +28,9 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Search query. Fuzzy matching is automatically enabled for single terms."
                     },
-                    "filePattern": {
+                    "globPattern": {
                         "type": "string",
-                        "description": "File glob pattern relative to search path (e.g., '*', '*.txt', 'data/**', 'src/**/*.txt'). Leading slashes are ignored. Default searches all files.",
+                        "description": "Glob pattern relative to search path (e.g., '*', '*.txt', 'data/**', 'src/**/*.txt'). Leading slashes are ignored. Default searches all files.",
                         "default": "*"
                     },
                     "skip": {
@@ -197,7 +197,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         raise ValueError(f"Unknown tool: {name}")
     
     query = arguments["query"]
-    file_pattern = arguments.get("filePattern", "*")
+    file_pattern = arguments.get("globPattern", "*")
     skip = arguments.get("skip", 0)
     limit = arguments.get("limit", 10)
     full_path_output = USE_FULL_PATH

@@ -70,7 +70,7 @@ Search for text in files using indexed full-text search. Fuzzy matching is autom
   - Wildcards: `test*` (prefix matching)
   - Phrases: `"exact phrase"`
   - Boolean: `term1 AND term2`, `term1 OR term2`
-- `filePattern` (optional): File glob pattern relative to search path (e.g., '*.py', 'data/**', 'src/**/*.js'). Default searches all files.
+- `globPattern` (optional): File glob pattern relative to search path (e.g., '*.py', 'data/**', 'src/**/*.js'). Default searches all files.
 - `skip` (optional): Skip first N matches (default: 0)
 
 ### read_file_chunk
