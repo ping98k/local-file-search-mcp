@@ -30,20 +30,14 @@ async def list_tools() -> list[Tool]:
                     },
                     "filePattern": {
                         "type": "string",
-                        "description": "File name pattern to search in (e.g., '*.py', 'config.txt'). Default searches all files.",
+                        "description": "File glob pattern relative to search path (e.g., '*.py', 'data/**', 'src/**/*.js'). Leading slashes are ignored. Default searches all files.",
                         "default": "*"
                     },
                     "skip": {
                         "type": "integer",
                         "description": "Skip first N matches",
                         "default": 0
-                    },
-                    # "threshold": {
-                    #     "type": "integer",
-                    #     "description": "Similarity threshold (0-100)",
-                    #     "default": 80
-                    # }
-
+                    }
                 },
                 "required": ["query"]
             }
@@ -205,7 +199,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     query = arguments["query"]
     file_pattern = arguments.get("filePattern", "*")
     skip = arguments.get("skip", 0)
-    limit = arguments.get("limit", 5)
+    limit = arguments.get("limit", 10)
     full_path_output = USE_FULL_PATH
     
     search_path = Path(SEARCH_PATH)
@@ -224,12 +218,33 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         SEARCH_INDEX = tantivy.Index(schema, path=None)
         writer = SEARCH_INDEX.writer()
         
-        CHUNK_SIZE = 1000
-        CHUNK_OVERLAP = 200
+        CHUNK_SIZE = 500
+        CHUNK_OVERLAP = 100
+        
+        # Normalize file pattern: remove leading slash, ensure proper glob syntax
+        if file_pattern != "*":
+            file_pattern = file_pattern.lstrip('/')
+            if file_pattern.endswith('**'):
+                file_pattern += '/*'
         
         for file_path in search_path.rglob('*'):
             if not file_path.is_file():
                 continue
+            
+            # Filter by file pattern during indexing
+            if file_pattern != "*":
+                relative_path = file_path.relative_to(search_path)
+                relative_str = str(relative_path).replace('\\', '/')
+                
+                # Check if it's an exact path or a glob pattern
+                if '*' in file_pattern or '?' in file_pattern:
+                    # Use glob matching
+                    if not relative_path.match(file_pattern):
+                        continue
+                else:
+                    # Exact path match
+                    if relative_str != file_pattern:
+                        continue
             
             try:
                 content = file_path.read_text(encoding='utf-8', errors='ignore')
@@ -257,7 +272,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Add automatic fuzzy matching and prefix matching if query is a simple term
         if ' ' not in query and '"' not in query and '~' not in query and '*' not in query:
             # Combine fuzzy search with prefix matching for better results
-            fuzzy_query = f"({query}~3*)"
+            fuzzy_query = f"({query}~2 OR {query}*)"
             tantivy_query = SEARCH_INDEX.parse_query(fuzzy_query, ["content"])
         else:
             tantivy_query = SEARCH_INDEX.parse_query(query, ["content"])
@@ -265,7 +280,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Invalid query syntax: {query}")]
     
     searcher = SEARCH_INDEX.searcher()
-    search_results = searcher.search(tantivy_query, limit=skip + limit + 50).hits
+    search_result = searcher.search(tantivy_query, limit=limit, offset=skip)
+    search_results = search_result.hits
+    total_count = search_result.count
     
     results = []
     
@@ -275,25 +292,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         content = doc.get_first("content")
         char_offset = doc.get_first("char_offset")
         
-        if file_pattern != "*":
-            path_check = file_path.lstrip('/') if not full_path_output else file_path
-            if not Path(path_check).match(file_pattern):
-                continue
-        
         results.append({
             'file': file_path,
             'score': score,
             'chunk': content,
             'char_offset': char_offset
         })
-        
-        if len(results) >= skip + limit:
-            break
     
-    # Apply skip and limit
-    results = results[skip:skip + limit]
-    
-    output = f"Total found: {len(search_results)} matches\n\n"
+    output = f"Total found: {total_count} matches\n\n"
     for r in results:
         output += f"File: {r['file']}\n"
         output += f"Score: {r['score']:.2f}\n"
