@@ -61,7 +61,7 @@ With full paths enabled:
 
 ## Tools
 
-### search
+### search_file_contents
 Search for text in files using indexed full-text search. Fuzzy matching is automatically enabled for single-word queries.
 
 **Parameters:**
@@ -73,14 +73,14 @@ Search for text in files using indexed full-text search. Fuzzy matching is autom
 - `filePattern` (optional): File glob pattern relative to search path (e.g., '*.py', 'data/**', 'src/**/*.js'). Default searches all files.
 - `skip` (optional): Skip first N matches (default: 0)
 
-### read
+### read_file_chunk
 Read a text chunk from a file around a specific character offset. Returns approximately 1000 characters (100 before and 900 after the offset).
 
 **Parameters:**
 - `filePath` (required): File path (relative to search path or absolute)
 - `charOffset` (required): Character offset in the file
 
-### list
+### list_directory_contents
 List files and directories at the specified path. Returns folders and files with sizes.
 
 **Parameters:**

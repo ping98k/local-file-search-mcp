@@ -19,8 +19,8 @@ server = Server("search-server")
 async def list_tools() -> list[Tool]:
     return [
         Tool(
-            name="search",
-            description="Search for text in files using indexed full-text search. Fuzzy matching (~) is automatically enabled for single-word queries. You can manually write search queries with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR), and more.",
+            name="search_file_contents",
+            description="Search for text in files using indexed full-text search. Fuzzy matching (~) is automatically enabled for single-word queries. You can manually write search queries with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR), and more. Returns: list of matches with file paths, relevance scores, character offsets, and content snippets.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -43,8 +43,8 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="read",
-            description="Read a text chunk from a file around a specific character offset. Returns approximately 1000 characters (100 before and 900 after the offset).",
+            name="read_file_chunk",
+            description="Read a text chunk from a file around a specific character offset. Returns approximately 1000 characters (100 before and 900 after the offset). Returns: file path, character range, and text content.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -61,8 +61,8 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="list",
-            description="List files and directories at the specified path. Returns folders and files with sizes.",
+            name="list_directory_contents",
+            description="List files and directories at the specified path. Returns folders and files with sizes. Returns: organized list of folders and files with byte sizes and total counts.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -79,7 +79,7 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "list":
+    if name == "list_directory_contents":
         dir_path = arguments.get("path", "")
         full_path_output = USE_FULL_PATH
         
@@ -150,7 +150,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 text=f"Error listing directory: {e}"
             )]
     
-    if name == "read":
+    if name == "read_file_chunk":
         file_path = arguments["filePath"]
         char_offset = arguments["charOffset"]
         full_path_output = USE_FULL_PATH
@@ -193,7 +193,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         
         return [TextContent(type="text", text=output)]
     
-    if name != "search":
+    if name != "search_file_contents":
         raise ValueError(f"Unknown tool: {name}")
     
     query = arguments["query"]
