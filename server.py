@@ -26,7 +26,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query using Tantivy query syntax. Query syntax: 'term1 term2' (OR), 'term1 AND term2', '+required -excluded', '\"exact phrase\"', 'field:value', 'term^2' (boost), 'term~2' (fuzzy), range '[start TO end]'"
+                        "description": "Search query. Fuzzy matching is automatically enabled for single terms."
                     },
                     "filePattern": {
                         "type": "string",
@@ -188,7 +188,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             )]
         
         start = max(0, char_offset - 100)
-        end = min(len(content), char_offset + 500)
+        end = min(len(content), char_offset + 900)
         chunk = content[start:end]
         max_range = len(content)
         
@@ -218,16 +218,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         schema_builder = tantivy.SchemaBuilder()
         schema_builder.add_text_field("path", stored=True)
         schema_builder.add_text_field("content", stored=True, tokenizer_name="default")
+        schema_builder.add_integer_field("char_offset", stored=True, indexed=False)
         schema = schema_builder.build()
         
         SEARCH_INDEX = tantivy.Index(schema, path=None)
         writer = SEARCH_INDEX.writer()
         
+        CHUNK_SIZE = 1000
+        CHUNK_OVERLAP = 200
+        
         for file_path in search_path.rglob('*'):
             if not file_path.is_file():
-                continue
-            
-            if file_pattern != "*" and not file_path.match(file_pattern):
                 continue
             
             try:
@@ -237,10 +238,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 else:
                     display_path = '/' + str(file_path.relative_to(search_path)).replace('\\', '/')
                 
-                writer.add_document(tantivy.Document(
-                    path=[display_path],
-                    content=[content]
-                ))
+                # Chunk the file content
+                for i in range(0, len(content), CHUNK_SIZE - CHUNK_OVERLAP):
+                    chunk = content[i:i + CHUNK_SIZE]
+                    if chunk.strip():  # Skip empty chunks
+                        writer.add_document(tantivy.Document(
+                            path=[display_path],
+                            content=[chunk],
+                            char_offset=[i]
+                        ))
             except:
                 continue
         
@@ -248,7 +254,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         SEARCH_INDEX.reload()
     
     try:
-        tantivy_query = SEARCH_INDEX.parse_query(query, ["content"])
+        # Add automatic fuzzy matching and prefix matching if query is a simple term
+        if ' ' not in query and '"' not in query and '~' not in query and '*' not in query:
+            # Combine fuzzy search with prefix matching for better results
+            fuzzy_query = f"({query}~3*)"
+            tantivy_query = SEARCH_INDEX.parse_query(fuzzy_query, ["content"])
+        else:
+            tantivy_query = SEARCH_INDEX.parse_query(query, ["content"])
     except:
         return [TextContent(type="text", text=f"Invalid query syntax: {query}")]
     
@@ -256,38 +268,37 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     search_results = searcher.search(tantivy_query, limit=skip + limit + 50).hits
     
     results = []
+    
     for score, doc_address in search_results:
-        if len(results) >= skip + limit:
-            break
-        
         doc = searcher.doc(doc_address)
         file_path = doc.get_first("path")
         content = doc.get_first("content")
+        char_offset = doc.get_first("char_offset")
         
         if file_pattern != "*":
             path_check = file_path.lstrip('/') if not full_path_output else file_path
             if not Path(path_check).match(file_pattern):
                 continue
         
-        if len(results) < skip:
-            results.append(None)
-            continue
-        
-        snippet = content[:500]
-        
         results.append({
             'file': file_path,
             'score': score,
-            'snippet': snippet
+            'chunk': content,
+            'char_offset': char_offset
         })
+        
+        if len(results) >= skip + limit:
+            break
     
-    results = [r for r in results if r is not None][skip:]
+    # Apply skip and limit
+    results = results[skip:skip + limit]
     
-    output = f"Total found: {len(search_results)}\n\n"
+    output = f"Total found: {len(search_results)} matches\n\n"
     for r in results:
         output += f"File: {r['file']}\n"
         output += f"Score: {r['score']:.2f}\n"
-        output += f"Snippet:\n{r['snippet']}\n\n"
+        output += f"Offset: {r['char_offset']}\n"
+        output += f"Context:\n{r['chunk']}\n\n"
         output += "-"*20+"\n\n"
     
     return [TextContent(type="text", text=output)]
