@@ -1,10 +1,10 @@
 [project]
-name = "local-file-mcp"
+name = "local-file-search-mcp"
 version = "0.1.0"
 dependencies = [
     "mcp",
-    "rapidfuzz"
+    "tantivy"
 ]
 
 [project.scripts]
-local-file-mcp = "server:main"
+local-file-search-mcp = "server:main"

@@ -20,7 +20,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search",
-            description="Search for text in files.",
+            description="Search for text in files using indexed full-text search. Fuzzy matching (~) is automatically enabled for single-word queries. You can manually write search queries with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR), and more.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -44,7 +44,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="read",
-            description="Read text from a file at a specific offset",
+            description="Read a text chunk from a file around a specific character offset. Returns approximately 1000 characters (100 before and 900 after the offset).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -62,7 +62,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="list",
-            description="list file that you can access",
+            description="List files and directories at the specified path. Returns folders and files with sizes.",
             inputSchema={
                 "type": "object",
                 "properties": {
