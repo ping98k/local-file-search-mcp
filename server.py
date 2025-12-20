@@ -20,7 +20,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_file_contents",
-            description="Search for text in files using indexed full-text search. Fuzzy matching (~) is automatically enabled for single-word queries. You can manually write search queries with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR), and more. Returns: list of matches with file paths, relevance scores, character offsets, and content snippets.",
+            description="Search for text in files using indexed full-text search. Fuzzy matching (~) is automatically enabled for single-word queries. You can manually write search queries with operators like fuzzy (~2), wildcards (*), phrases (\"\"), boolean (AND/OR), and more. Returns: list of matches with file paths, relevance scores, character offsets, and content snippets.\n\nBEST PRACTICE: Start with filePattern='*' to search all files before filtering by specific file types.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -30,7 +30,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "filePattern": {
                         "type": "string",
-                        "description": "File glob pattern relative to search path (e.g., '*.py', 'data/**', 'src/**/*.js'). Leading slashes are ignored. Default searches all files.",
+                        "description": "File glob pattern relative to search path (e.g., '*', '*.txt', 'data/**', 'src/**/*.txt'). Leading slashes are ignored. Default searches all files.",
                         "default": "*"
                     },
                     "skip": {
@@ -62,7 +62,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="list_directory_contents",
-            description="List files and directories at the specified path. Returns folders and files with sizes. Returns: organized list of folders and files with byte sizes and total counts.",
+            description="List files and directories at the specified path. Returns folders and files with sizes. Returns: organized list of folders and files with byte sizes and total counts.\n\nBEST PRACTICE: Use this tool first to understand what you're working with before searching.",
             inputSchema={
                 "type": "object",
                 "properties": {
