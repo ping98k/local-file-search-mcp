@@ -2,7 +2,7 @@ import re
 import sys
 import os
 from pathlib import Path
-from rapidfuzz import fuzz
+import tantivy
 from mcp.server import Server
 from mcp.types import Tool, TextContent
 import mcp.server.stdio
@@ -11,6 +11,7 @@ import asyncio
 
 SEARCH_PATH = None
 USE_FULL_PATH = False
+SEARCH_INDEX = None
 
 server = Server("search-server")
 
@@ -204,12 +205,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     query = arguments["query"]
     file_pattern = arguments.get("filePattern", "*")
     skip = arguments.get("skip", 0)
-    threshold = arguments.get("threshold", 80)
     full_path_output = USE_FULL_PATH
     
     search_path = Path(SEARCH_PATH)
-    results = []
-    total_found = 0
     
     if not search_path.exists():
         return [TextContent(
@@ -217,55 +215,81 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             text=f"Path not found: {SEARCH_PATH}"
         )]
     
-    query_len = len(query)
-    matches_found = 0
-    
-    for file_path in search_path.rglob('*'):
-        if not file_path.is_file():
-            continue
+    # Build index if not already built
+    global SEARCH_INDEX
+    if SEARCH_INDEX is None:
+        # Schema Definition: path and content fields
+        schema_builder = tantivy.SchemaBuilder()
+        schema_builder.add_text_field("path", stored=True)
+        schema_builder.add_text_field("content", stored=True)
+        schema = schema_builder.build()
         
-        # Filter by file pattern
-        if file_pattern != "*" and not file_path.match(file_pattern):
-            continue
+        # In-Memory Index
+        SEARCH_INDEX = tantivy.Index(schema, path=None)  # None = in-memory
+        writer = SEARCH_INDEX.writer()
         
-        try:
-            content = file_path.read_text(encoding='utf-8', errors='ignore')
-        except:
-            continue
-        
-        words = re.findall(r'\S+', content)
-        
-        for i, word in enumerate(words):
-            if abs(len(word) - query_len) > query_len * 0.3:
+        # Index all files
+        for file_path in search_path.rglob('*'):
+            if not file_path.is_file():
                 continue
-                
-            similarity = fuzz.ratio(query.lower(), word.lower())
             
-            if similarity >= threshold:
-                total_found += 1
+            try:
+                content = file_path.read_text(encoding='utf-8', errors='ignore')
+                if full_path_output:
+                    display_path = str(file_path).replace('\\', '/')
+                else:
+                    display_path = '/' + str(file_path.relative_to(search_path)).replace('\\', '/')
                 
-                if matches_found >= skip and len(results) < 5:
-                    pos = content.find(word, sum(len(w) + 1 for w in words[:i]))
-                    chunk_start = max(0, pos - 250)
-                    chunk_end = min(len(content), pos + len(word) + 250)
-                    chunk = content[chunk_start:chunk_end]
-                    
-                    if full_path_output:
-                        display_path = str(file_path).replace('\\', '/')
-                    else:
-                        display_path = '/' + str(file_path.relative_to(search_path)).replace('\\', '/')
-                    
-                    results.append({
-                        'file': display_path,
-                        'position': pos,
-                        'match': word,
-                        'similarity': similarity,
-                        'chunk': chunk
-                    })
-                
-                matches_found += 1
+                writer.add_document(tantivy.Document(
+                    path=[display_path],
+                    content=[content]
+                ))
+            except:
+                continue
+        
+        writer.commit()
     
-    output = f"Total found: {total_found}\n\n"
+    # Search the index
+    searcher = SEARCH_INDEX.searcher()
+    tantivy_query = SEARCH_INDEX.parse_query(query, ["content"])
+    
+    search_results = searcher.search(tantivy_query, limit=skip + 5).hits
+    
+    results = []
+    for score, doc_address in search_results[skip:]:
+        if len(results) >= 5:
+            break
+        
+        doc = searcher.doc(doc_address)
+        file_path = doc.get_first("path")
+        content = doc.get_first("content")
+        
+        # Filter by file pattern if needed
+        if file_pattern != "*":
+            path_obj = Path(file_path.lstrip('/'))
+            if not path_obj.match(file_pattern):
+                continue
+        
+        # Find query position in content
+        query_lower = query.lower()
+        content_lower = content.lower()
+        pos = content_lower.find(query_lower)
+        
+        if pos == -1:
+            # If exact match not found, show beginning of file
+            pos = 0
+        
+        chunk_start = max(0, pos - 250)
+        chunk_end = min(len(content), pos + len(query) + 250)
+        chunk = content[chunk_start:chunk_end]
+        
+        results.append({
+            'file': file_path,
+            'position': pos,
+            'chunk': chunk
+        })
+    
+    output = f"Total found: {len(search_results)}\n\n"
     for r in results:
         output += f"File: {r['file']}\n"
         output += f"Position: {r['position']}\n"
