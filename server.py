@@ -37,10 +37,6 @@ async def list_tools() -> list[Tool]:
                         "description": "Skip first N matches",
                         "default": 0
                     },
-                    "fullPath": {
-                        "type": "boolean",
-                        "description": "Use full system path in output instead of relative path (overrides server default)"
-                    },
                     # "threshold": {
                     #     "type": "integer",
                     #     "description": "Similarity threshold (0-100)",
@@ -64,10 +60,6 @@ async def list_tools() -> list[Tool]:
                     "charOffset": {
                         "type": "integer",
                         "description": "Character offset in the file"
-                    },
-                    "fullPath": {
-                        "type": "boolean",
-                        "description": "Use full system path in output instead of relative path (overrides server default)"
                     }
                 },
                 "required": ["filePath", "charOffset"]
@@ -75,7 +67,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="list",
-            description="List files and folders in a directory",
+            description="list file that you can access",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -83,10 +75,6 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Directory path relative to search path (empty or '/' for root)",
                         "default": ""
-                    },
-                    "fullPath": {
-                        "type": "boolean",
-                        "description": "Use full system path in output instead of relative path (overrides server default)"
                     }
                 },
                 "required": []
@@ -98,7 +86,7 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "list":
         dir_path = arguments.get("path", "")
-        full_path_output = arguments.get("fullPath", USE_FULL_PATH)
+        full_path_output = USE_FULL_PATH
         
         search_path = Path(SEARCH_PATH)
         # Remove leading slash if present
@@ -170,7 +158,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "read":
         file_path = arguments["filePath"]
         char_offset = arguments["charOffset"]
-        full_path_output = arguments.get("fullPath", USE_FULL_PATH)
+        full_path_output = USE_FULL_PATH
         
         search_path = Path(SEARCH_PATH)
         
@@ -217,7 +205,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     file_pattern = arguments.get("filePattern", "*")
     skip = arguments.get("skip", 0)
     threshold = arguments.get("threshold", 80)
-    full_path_output = arguments.get("fullPath", USE_FULL_PATH)
+    full_path_output = USE_FULL_PATH
     
     search_path = Path(SEARCH_PATH)
     results = []
