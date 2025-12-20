@@ -20,13 +20,13 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search",
-            description="Search for text in files with fuzzy matching",
+            description="Search for text in files.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search query"
+                        "description": "Search query using Tantivy query syntax. Query syntax: 'term1 term2' (OR), 'term1 AND term2', '+required -excluded', '\"exact phrase\"', 'field:value', 'term^2' (boost), 'term~2' (fuzzy), range '[start TO end]'"
                     },
                     "filePattern": {
                         "type": "string",
@@ -205,32 +205,29 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     query = arguments["query"]
     file_pattern = arguments.get("filePattern", "*")
     skip = arguments.get("skip", 0)
+    limit = arguments.get("limit", 5)
     full_path_output = USE_FULL_PATH
     
     search_path = Path(SEARCH_PATH)
     
     if not search_path.exists():
-        return [TextContent(
-            type="text",
-            text=f"Path not found: {SEARCH_PATH}"
-        )]
+        return [TextContent(type="text", text=f"Path not found: {SEARCH_PATH}")]
     
-    # Build index if not already built
     global SEARCH_INDEX
     if SEARCH_INDEX is None:
-        # Schema Definition: path and content fields
         schema_builder = tantivy.SchemaBuilder()
         schema_builder.add_text_field("path", stored=True)
-        schema_builder.add_text_field("content", stored=True)
+        schema_builder.add_text_field("content", stored=True, tokenizer_name="default")
         schema = schema_builder.build()
         
-        # In-Memory Index
-        SEARCH_INDEX = tantivy.Index(schema, path=None)  # None = in-memory
+        SEARCH_INDEX = tantivy.Index(schema, path=None)
         writer = SEARCH_INDEX.writer()
         
-        # Index all files
         for file_path in search_path.rglob('*'):
             if not file_path.is_file():
+                continue
+            
+            if file_pattern != "*" and not file_path.match(file_pattern):
                 continue
             
             try:
@@ -248,53 +245,50 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 continue
         
         writer.commit()
+        SEARCH_INDEX.reload()
     
-    # Search the index
+    try:
+        tantivy_query = SEARCH_INDEX.parse_query(query, ["content"])
+    except:
+        return [TextContent(type="text", text=f"Invalid query syntax: {query}")]
+    
     searcher = SEARCH_INDEX.searcher()
-    tantivy_query = SEARCH_INDEX.parse_query(query, ["content"])
-    
-    search_results = searcher.search(tantivy_query, limit=skip + 5).hits
+    search_results = searcher.search(tantivy_query, limit=skip + limit + 50).hits
     
     results = []
-    for score, doc_address in search_results[skip:]:
-        if len(results) >= 5:
+    for score, doc_address in search_results:
+        if len(results) >= skip + limit:
             break
         
         doc = searcher.doc(doc_address)
         file_path = doc.get_first("path")
         content = doc.get_first("content")
         
-        # Filter by file pattern if needed
         if file_pattern != "*":
-            path_obj = Path(file_path.lstrip('/'))
-            if not path_obj.match(file_pattern):
+            path_check = file_path.lstrip('/') if not full_path_output else file_path
+            if not Path(path_check).match(file_pattern):
                 continue
         
-        # Find query position in content
-        query_lower = query.lower()
-        content_lower = content.lower()
-        pos = content_lower.find(query_lower)
+        if len(results) < skip:
+            results.append(None)
+            continue
         
-        if pos == -1:
-            # If exact match not found, show beginning of file
-            pos = 0
-        
-        chunk_start = max(0, pos - 250)
-        chunk_end = min(len(content), pos + len(query) + 250)
-        chunk = content[chunk_start:chunk_end]
+        snippet = content[:500]
         
         results.append({
             'file': file_path,
-            'position': pos,
-            'chunk': chunk
+            'score': score,
+            'snippet': snippet
         })
+    
+    results = [r for r in results if r is not None][skip:]
     
     output = f"Total found: {len(search_results)}\n\n"
     for r in results:
         output += f"File: {r['file']}\n"
-        output += f"Position: {r['position']}\n"
-        output += f"Context:\n{r['chunk']}\n\n\n"
-        output += "-"*20+"\n\n\n"
+        output += f"Score: {r['score']:.2f}\n"
+        output += f"Snippet:\n{r['snippet']}\n\n"
+        output += "-"*20+"\n\n"
     
     return [TextContent(type="text", text=output)]
 
